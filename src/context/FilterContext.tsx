@@ -1282,6 +1282,14 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       dispatch({ type: "CHAIN_TOGGLE", id });
       maybeStopAutoAnimLoop();
     },
+    chainShuffle: () => {
+      prevOutputMapRef.current.clear();
+      prevInputMapRef.current.clear();
+      emaMapRef.current.clear();
+      clearCachedOutputs();
+      clearMotionVectorsState();
+      dispatch({ type: "CHAIN_SHUFFLE" });
+    },
     chainReplace: (id: string, displayName: string, filter) => {
       prevOutputMapRef.current.delete(id);
       prevInputMapRef.current.delete(id);

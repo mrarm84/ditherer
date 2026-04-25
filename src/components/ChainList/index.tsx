@@ -537,7 +537,15 @@ const ChainList = ({
             &#9861;
           </button>
           <button
+            className={[s.addBtn, s.randomAction].join(" ")}
+            onClick={() => actions.chainShuffle()}
+            title="Randomize filter order"
+          >
+            &#8646;
+          </button>
+          <button
             className={[s.addBtn, s.iconBtn, randomCycleSeconds != null ? s.activeToolbarBtn : ""].join(" ")}
+
             onClick={promptRandomCycle}
             title={randomCycleSeconds != null ? `Random cycle every ${randomCycleSeconds}s (click to change or stop)` : "Prompt for random cycle interval"}
             aria-label={randomCycleSeconds != null ? `Random cycle every ${randomCycleSeconds} seconds` : "Set random cycle interval"}

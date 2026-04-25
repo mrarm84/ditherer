@@ -59,6 +59,7 @@ export interface FilterActions {
   chainReorder: (fromIndex: number, toIndex: number) => void;
   chainSetActive: (index: number) => void;
   chainToggle: (id: string) => void;
+  chainShuffle: () => void;
   chainReplace: (id: string, displayName: string, filter: FilterDefinition) => void;
   chainDuplicate: (id: string) => void;
   setChainAudioModulation: (id: string, modulation: EntryAudioModulation | null) => void;

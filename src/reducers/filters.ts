@@ -25,6 +25,7 @@ const CHAIN_SET_ACTIVE = "CHAIN_SET_ACTIVE";
 const CHAIN_TOGGLE = "CHAIN_TOGGLE";
 const CHAIN_REPLACE = "CHAIN_REPLACE";
 const CHAIN_DUPLICATE = "CHAIN_DUPLICATE";
+const CHAIN_SHUFFLE = "CHAIN_SHUFFLE";
 
 import { SCALING_ALGORITHM } from "constants/optionTypes";
 import {
@@ -289,6 +290,9 @@ type ChainMutationAction =
       id: string;
     }
   | {
+      type: typeof CHAIN_SHUFFLE;
+    }
+  | {
       type: typeof SET_CHAIN_AUDIO_MODULATION;
       id: string;
       modulation: EntryAudioModulation | null;
@@ -550,6 +554,15 @@ const filterReducer = (
       const chain = [...state.chain];
       chain.splice(idx + 1, 0, clone);
       return withSelected({ ...state, chain, activeIndex: idx + 1 });
+    }
+    case CHAIN_SHUFFLE: {
+      if (state.chain.length <= 1) return state;
+      const chain = [...state.chain];
+      for (let i = chain.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [chain[i], chain[j]] = [chain[j], chain[i]];
+      }
+      return withSelected({ ...state, chain, activeIndex: 0 });
     }
     case SET_CHAIN_AUDIO_MODULATION: {
       const chain = state.chain.map((entry) =>
