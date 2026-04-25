@@ -2546,6 +2546,25 @@ const App = () => {
                 >
                 Mesh
                 </button>
+                <button
+                  className={s.testMediaButton}
+                  onClick={() => {
+                      const input = document.createElement("input");
+                      input.type = "file";
+                      input.accept = ".glb,.gltf";
+                      input.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) {
+                              void actions.loadGlbAsync(file);
+                              setInputFilename(file.name);
+                          }
+                      };
+                      input.click();
+                  }}
+                  title="Load a 3D model (GLB/GLTF)"
+                >
+                  3D?
+                </button>
                 <select
                 className={s.testMediaButton}
                 value={state.webcamResolution.join("x")}
@@ -2766,6 +2785,31 @@ const App = () => {
                     />
                   </div>
                 </>)}
+              </fieldset>
+            </CollapsibleSection>
+          )}
+
+          {state.glbEnabled && (
+            <CollapsibleSection title="3D Model Settings">
+              <fieldset className={[controls.optionGroup, s.inputTweaks].join(" ")}>
+                <legend className={controls.optionGroupLegend}>3D Settings</legend>
+                
+                <Range
+                  name="Auto Rotate"
+                  types={{ range: [0, 5], desc: "Automatic rotation speed" }}
+                  step={0.1}
+                  onSetFilterOption={(_, value) => actions.setGlbConfig({ autoRotateSpeed: Number(value) })}
+                  value={state.glbConfig.autoRotateSpeed}
+                />
+
+                <div className={controls.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={state.glbConfig.allowMouseMoving}
+                    onChange={e => actions.setGlbConfig({ allowMouseMoving: e.target.checked })}
+                  />
+                  <span className={controls.label}>Allow moving by mouse</span>
+                </div>
               </fieldset>
             </CollapsibleSection>
           )}

@@ -16,6 +16,8 @@ const SET_SCALING_ALGORITHM = "SET_SCALING_ALGORITHM";
 const SET_MEDIAPIPE_ENABLED = "SET_MEDIAPIPE_ENABLED";
 const SET_MEDIAPIPE_OPTIONS = "SET_MEDIAPIPE_OPTIONS";
 const SET_WEBCAM_RESOLUTION = "SET_WEBCAM_RESOLUTION";
+const SET_GLB_ENABLED = "SET_GLB_ENABLED";
+const SET_GLB_CONFIG = "SET_GLB_CONFIG";
 const SET_LINEARIZE = "SET_LINEARIZE";
 const SET_WASM_ACCELERATION = "SET_WASM_ACCELERATION";
 const SET_WEBGL_ACCELERATION = "SET_WEBGL_ACCELERATION";
@@ -180,6 +182,11 @@ export const initialState = {
   stepTimes: null as StepTime[] | null,
   mediapipeEnabled: false,
   webcamResolution: [1280, 720] as [number, number],
+  glbEnabled: false,
+  glbConfig: {
+    autoRotateSpeed: 0,
+    allowMouseMoving: true,
+  },
   mediapipeOptions: {
     faceMesh: true,
     landmarks: true,
@@ -381,6 +388,14 @@ type ScalarStateAction =
   | {
       type: typeof SET_INPUT_PLAYBACK_RATE;
       rate: number;
+    }
+  | {
+      type: typeof SET_GLB_ENABLED;
+      value: boolean;
+    }
+  | {
+      type: typeof SET_GLB_CONFIG;
+      config: Partial<FilterReducerState["glbConfig"]>;
     }
   | {
       type: typeof SET_SCALING_ALGORITHM;
@@ -768,6 +783,13 @@ const filterReducer = (
       return { ...state, mediapipeEnabled: action.value };
     case SET_WEBCAM_RESOLUTION:
       return { ...state, webcamResolution: action.resolution };
+    case SET_GLB_ENABLED:
+      return { ...state, glbEnabled: action.value };
+    case SET_GLB_CONFIG:
+      return {
+        ...state,
+        glbConfig: { ...state.glbConfig, ...action.config },
+      };
     case SET_MEDIAPIPE_OPTIONS:
       return {
         ...state,

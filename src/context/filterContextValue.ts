@@ -47,6 +47,9 @@ export interface FilterActions {
   setMediapipeOptions: (options: Partial<FilterState["mediapipeOptions"]>) => void;
   setRealtimeFiltering: (enabled: boolean) => void;
   loadWebcamAsync: () => Promise<void>;
+  loadGlbAsync: (file: File) => Promise<void>;
+  setGlbEnabled: (enabled: boolean) => void;
+  setGlbConfig: (config: Partial<FilterState["glbConfig"]>) => void;
   setInputCanvas: (canvas: HTMLCanvasElement | null) => void;
   setOutputCanvas: (canvas: HTMLCanvasElement | null) => void;
   setInputVolume: (volume: number) => void;

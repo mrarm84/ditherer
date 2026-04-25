@@ -12,10 +12,12 @@ import { createReadbackCanvas, getReadbackContext, getWorkerPrevOutputFrame, Wor
 import { recordFilterStepMs } from "utils/slowFilterRegistry";
 import { releasePooledTextures, glAvailable, glUnavailableStub } from "gl";
 import { releaseFloatTextures } from "gl/fft2d";
-import { workerRPC, USE_WORKER } from "workers/workerRPC";
+import { USE_WORKER, workerRPC } from "workers/workerRPC";
 import { clearMotionVectorsState } from "filters/motionVectors";
 import { initMediaPipe, processFrame, drawMediaPipeResults } from "utils/mediapipe";
+import { threeManager } from "utils/threeManager";
 import { FilterContext } from "./filterContextValue";
+
 import type { AnimatedVideoElement, ExportFrameOptions, FilterActions, FilterOptionValue } from "./filterContextValue";
 import { getAutoScale, roundScale } from "./autoScale";
 import { getShareHash, getShareUrl } from "./shareUrl";
@@ -680,7 +682,8 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     const isAnimating = Boolean(
       animLoopRef.current != null ||
       degaussAnimRef.current != null ||
-      (curState.video && !curState.video.paused)
+      (curState.video && !curState.video.paused) ||
+      (curState.glbEnabled)
     );
 
     const chainKey = chain.map((e) => e.id + (e.enabled ? "1" : "0")).join(",");
@@ -690,6 +693,12 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     }
 
     let canvas = input;
+    
+    // Update and render 3D scene if input is 3D tagged
+    if (canvas && (canvas as any).__is3d) {
+        threeManager.update(0.016); // ~60fps step
+        canvas = threeManager.render();
+    }
     if (curState.convertGrayscale) {
       const maybeGrayscale = grayscale.func(canvas);
       if (maybeGrayscale instanceof HTMLCanvasElement) {
@@ -1068,6 +1077,26 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       if (video && video.__isWebcam) {
          void loadWebcamAsync();
       }
+    },
+    loadGlbAsync: async (file: File) => {
+      const url = URL.createObjectURL(file);
+      await threeManager.loadGlb(url);
+      URL.revokeObjectURL(url);
+      resetProcessingState();
+      
+      const canvas = threeManager.getCanvas();
+      // Tag it as 3D so the loop knows to update it
+      (canvas as any).__is3d = true;
+      
+      dispatch({ type: "LOAD_IMAGE", image: canvas as any, time: 0, frameToken: 0, video: null, dispatch });
+      dispatch({ type: "SET_GLB_ENABLED", value: true });
+    },
+    setGlbEnabled: (value: boolean) => {
+      dispatch({ type: "SET_GLB_ENABLED", value });
+    },
+    setGlbConfig: (config: Partial<FilterReducerState["glbConfig"]>) => {
+      dispatch({ type: "SET_GLB_CONFIG", config });
+      threeManager.setConfig(config);
     },
     setMediapipeEnabled: async (value: boolean) => {
       if (value) await initMediaPipe();
