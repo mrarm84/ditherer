@@ -48,6 +48,7 @@ export interface FilterActions {
   setRealtimeFiltering: (enabled: boolean) => void;
   loadWebcamAsync: () => Promise<void>;
   setInputCanvas: (canvas: HTMLCanvasElement | null) => void;
+  setOutputCanvas: (canvas: HTMLCanvasElement | null) => void;
   setInputVolume: (volume: number) => void;
   setInputPlaybackRate: (rate: number) => void;
   toggleVideo: () => void;

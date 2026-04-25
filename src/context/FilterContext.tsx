@@ -42,8 +42,6 @@ const serializeAudioModulation = (audioMod: EntryAudioModulation | null | undefi
   };
 };
 
-// Audio modulation math lives in src/utils/autoViz.ts so it can be unit
-// tested with a stub snapshot (no AudioContext / MediaDevices needed).
 const applyAudioModulationToOptions = (
   options: Record<string, unknown>,
   optionTypes: NonNullable<ChainEntry["filter"]["optionTypes"]>,
@@ -84,10 +82,8 @@ const withAudioModulatedOptions = (entry: ChainEntry) => {
 type FilterRunner = (input: HTMLCanvasElement | OffscreenCanvas | null) => void;
 type AnimationParams = { inputCanvas: HTMLCanvasElement | null; fps: number };
 
-// Serialize state to v2 format with delta encoding
 const serializeState = (state: typeof initialState): SerializedFilterState => {
   const chain = state.chain;
-  // Single-entry chain with no non-default options: emit v1-compatible format
   if (chain.length === 1) {
     const v1State: ShareStateV1 = {
       selected: state.selected,
@@ -104,7 +100,6 @@ const serializeState = (state: typeof initialState): SerializedFilterState => {
     if (entry.displayName !== entry.filter.name) {
       result.d = entry.displayName;
     }
-    // Delta-encode options vs defaults
     const opts = entry.filter.options;
     const defaults = entry.filter.defaults;
     if (opts && defaults) {
@@ -112,7 +107,6 @@ const serializeState = (state: typeof initialState): SerializedFilterState => {
       for (const [k, v] of Object.entries(opts)) {
         if (typeof v === "function") continue;
         if (k === "palette") {
-          // Serialize palette with its options
           const paletteOption = v as SerializedPaletteOption | undefined;
           const pOpts = paletteOption?.options;
           const defaultPalette = defaults.palette as SerializedPaletteOption | undefined;
@@ -126,7 +120,6 @@ const serializeState = (state: typeof initialState): SerializedFilterState => {
       }
       if (Object.keys(delta).length > 0) result.o = delta;
     } else if (opts) {
-      // No defaults — serialize all non-function options
       const cleaned: SerializableOptions = {};
       for (const [k, v] of Object.entries(opts)) {
         if (typeof v !== "function") cleaned[k] = v;
@@ -174,7 +167,6 @@ const restoreAudioVizFromShareState = (data: SerializedFilterState) => {
   setGlobalAudioVizModulation("screensaver", deserializeAudioModulation(av?.screensaver?.m));
 };
 
-// Produce JSON string for export
 const serializeStateJson = (state: typeof initialState, pretty = false) => {
   const data = serializeState(state);
   const replacer = (k: string, v: unknown) => {
@@ -191,21 +183,18 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     filterReducer as React.Reducer<FilterReducerState, FilterReducerAction>,
     initialState
   );
-  const prevOutputMapRef = useRef<Map<string, Uint8ClampedArray>>(new Map());
-  const prevInputMapRef = useRef<Map<string, Uint8ClampedArray>>(new Map());
-  const emaMapRef = useRef<Map<string, Float32Array>>(new Map());
+  const mainThreadPrevOutputMap = useRef<Map<string, Uint8ClampedArray>>(new Map());
+  const mainThreadPrevInputMap = useRef<Map<string, Uint8ClampedArray>>(new Map());
+  const mainThreadEmaMap = useRef<Map<string, Float32Array>>(new Map());
   const cachedOutputsRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
   const cachedChainOrderRef = useRef<string>("");
+  const outputCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameCountRef = useRef(0);
   const degaussFrameRef = useRef(-Infinity);
   const degaussAnimRef = useRef<number | null>(null);
   const animLoopRef = useRef<number | null>(null);
   const animLastTimeRef = useRef(0);
   const animParamsRef = useRef<AnimationParams | null>(null);
-  // True when the current animation loop was started automatically by an
-  // `autoAnimate` filter on chain add (rather than by the user clicking a
-  // Play ACTION). When the last autoAnimate filter leaves the chain, we
-  // stop the loop; user-started loops are never auto-stopped.
   const animLoopAutoStartedRef = useRef(false);
   const filteringRef = useRef(false);
   const pendingFilterRef = useRef(false);
@@ -219,26 +208,24 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
   const stateRef = useRef<FilterReducerState>(state);
   stateRef.current = state;
   const filterImageAsyncRef = useRef<FilterRunner | null>(null);
+  const filterWorkerRef = useRef<Worker | null>(null);
 
   const resetProcessingState = useCallback(() => {
     filteringRef.current = false;
     pendingFilterRef.current = false;
     videoFrameTokenRef.current = 0;
-    prevOutputMapRef.current.clear();
-    prevInputMapRef.current.clear();
-    emaMapRef.current.clear();
     clearCachedOutputs();
     cachedChainOrderRef.current = "";
     clearMotionVectorsState();
-    // Flush GPU texture pools so stale entries from removed filters don't
-    // accumulate. Programs are kept (they're process-lifetime singletons
-    // and re-creating them on next use would be more expensive than the
-    // ~100-200 KB per program they hold).
+
+    if (filterWorkerRef.current) {
+        filterWorkerRef.current.postMessage({ id: "clear", type: "CLEAR_STATE" });
+    }
+
     releasePooledTextures();
     releaseFloatTextures();
   }, []);
 
-  // Restore state from #! hash on initial load
   useEffect(() => {
     const hash = window.location.hash;
     if (!hash.startsWith("#!")) return;
@@ -252,7 +239,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  // Sync filter state to URL hash so the address bar is always shareable
   const [audioVizSyncKey, setAudioVizSyncKey] = useState(0);
   useEffect(() => subscribeGlobalAudioVizModulation(() => setAudioVizSyncKey((value) => value + 1)), []);
   useEffect(() => {
@@ -273,7 +259,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     syncRandomCycleSeconds(state.randomCycleSeconds);
   }, [state.randomCycleSeconds]);
 
-  // Async action: load image from file
   const loadImageAsync = useCallback((file: File, options?: { preserveScale?: boolean }) => new Promise<void>((resolve, reject) => {
     const image = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -306,10 +291,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
   ) => new Promise<void>((resolve, reject) => {
     resetProcessingState();
 
-    // Tear down the previously playing video immediately — waiting for the
-    // new video's first frame (LOAD_IMAGE reducer path) leaves the old video
-    // decoding and occasionally auto-recovering its own playback, stacking up
-    // multiple live decoders during rapid swaps.
     const previousVideo = stateRef.current.video as (AnimatedVideoElement | null);
     if (previousVideo) {
       previousVideo.__manualPause = true;
@@ -405,8 +386,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
           hasLoggedFirstFrame = true;
           logPerf("first-frame-dispatched");
         }
-        // Some clips can transiently fail drawImage during decode starvation;
-        // keep the loop alive instead of silently stalling playback updates.
         dispatchCurrentFrame();
         rafId = requestAnimationFrame(loadFrame);
       } else {
@@ -434,7 +413,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     };
     video.onplaying = () => {
       logPerf("playing");
-      // Restart the frame loop every time playback resumes
       video.__manualPause = false;
       if (rafId == null) {
         rafId = requestAnimationFrame(loadFrame);
@@ -442,8 +420,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     };
     video.onpause = () => {
       rafId = null;
-      // Recover from unexpected pauses caused by decode/buffering edge cases.
-      // Respect explicit user pauses and teardown state (empty src).
       if (!video.__manualPause && video.src !== "" && !video.ended) {
         video.play().catch(() => {});
       }
@@ -475,7 +451,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     });
   }), [resetProcessingState]);
 
-  // Async action: load video from file
   const loadVideoAsync = useCallback((file: File, volume = 1, playbackRate = 1, options?: { preserveScale?: boolean }) => {
     const objectUrl = URL.createObjectURL(file);
     return loadVideoSourceAsync(
@@ -492,7 +467,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     );
   }, [loadVideoSourceAsync]);
 
-  // Async action: load video directly from URL (used for local test assets)
   const loadVideoFromUrlAsync = useCallback((src: string, volume = 1, playbackRate = 1, options?: { preserveScale?: boolean }) =>
     loadVideoSourceAsync(
       src,
@@ -504,7 +478,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     ),
   [loadVideoSourceAsync]);
 
-  // Async action: load media (routes to image or video)
   const loadMediaAsync = useCallback((file: File, volume = 1, playbackRate = 1, options?: { preserveScale?: boolean }) => {
     if (file.type.startsWith("video/")) {
       return loadVideoAsync(file, volume, playbackRate, options);
@@ -520,10 +493,8 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
         video: { width: { ideal: width }, height: { ideal: height } },
         audio: false
       });
-      // We use loadVideoSourceAsync but need a way to pass the stream.
-      // Modifying loadVideoSourceAsync to handle MediaStream as well.
       return loadVideoSourceAsync(
-        "", // dummy src, we'll use srcObject
+        "", 
         0, 1, { type: "webcam" }, undefined, { preserveScale: false },
         stream
       );
@@ -533,8 +504,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [loadVideoSourceAsync]);
 
-  // Execute the full filter chain on the input canvas
-  // Serialize filter options for worker (replace palette objects with serializable form)
   const serializeOptions = (options?: Record<string, unknown>) => {
     const opts = { ...options } as SerializableOptions & { palette?: SerializablePalette };
     if (
@@ -548,9 +517,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     return opts;
   };
 
-  // Main-thread filter execution (fallback path). Async so filters that
-  // return a Promise<canvas> (e.g. glitchblob — async Blob round-trip)
-  // fit the same contract as the worker path does.
   const filterOnMainThread = async (
     canvas: HTMLCanvasElement | OffscreenCanvas,
     enabledEntries: ChainEntry[],
@@ -558,9 +524,9 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     isAnimating: boolean,
     curState: FilterReducerState,
     temporalState = {
-      prevOutputMap: prevOutputMapRef.current,
-      prevInputMap: prevInputMapRef.current,
-      emaMap: emaMapRef.current,
+      prevOutputMap: mainThreadPrevOutputMap.current,
+      prevInputMap: mainThreadPrevInputMap.current,
+      emaMap: mainThreadEmaMap.current,
       frameIndex: frameCountRef.current,
     },
     dispatchOverride = dispatch,
@@ -571,9 +537,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
 
     for (let i = startIdx; i < enabledEntries.length; i++) {
       const entry = enabledEntries[i];
-
-      // Capture input pixels for _prevInput and EMA.
-      // Always capture so temporal filters work on first click too.
       let inputData: Uint8ClampedArray | null = null;
       const inputCtx = (
         canvas instanceof HTMLCanvasElement
@@ -621,9 +584,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
           continue;
         }
       }
-      // One-shot "JS (no wasm path)" for filters that didn't self-report via
-      // logFilterWasmStatus. Runs after the call so a filter that does log
-      // suppresses this fallback.
       logFilterDispatched(entry.filter.name, { noGL: entry.filter.noGL, noWASM: entry.filter.noWASM });
       const stepMs = performance.now() - t0;
       recordFilterStepMs(entry.filter.name, stepMs);
@@ -633,12 +593,8 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
         : { name: entry.displayName, ms: stepMs });
       totalTime += stepMs;
 
-      // Update temporal buffers
       if (inputData) {
         temporalState.prevInputMap.set(entry.id, inputData);
-
-        // Update EMA: ema = ema * (1 - alpha) + input * alpha
-        // Alpha 0.1 ≈ ~10 frame averaging window
         const EMA_ALPHA = 0.1;
         let ema = temporalState.emaMap.get(entry.id);
         if (!ema || ema.length !== inputData.length) {
@@ -661,10 +617,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
           );
         }
         if (cacheOutputs) {
-          // Returning the previous frame's cached canvas (now being
-          // replaced) to the pool is where the pooling actually pays off
-          // on steady-state animation — without this the cache is a
-          // ratchet holding ~chain-length canvases of memory forever.
           const prev = cachedOutputsRef.current.get(entry.id);
           if (prev && prev !== output) releasePooledCanvas(prev);
           cachedOutputsRef.current.set(entry.id, output);
@@ -685,7 +637,24 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
   ) => {
     frameCountRef.current += 1;
     filteringRef.current = false;
-    dispatch({ type: "FILTER_IMAGE", image: canvas as HTMLCanvasElement, frameToken, time: sourceTime, frameTime: totalTime, stepTimes });
+
+    const outCanvas = outputCanvasRef.current;
+    if (outCanvas) {
+        const outCtx = outCanvas.getContext("2d", { willReadFrequently: true });
+        if (outCtx) {
+            outCtx.imageSmoothingEnabled = stateRef.current.scalingAlgorithm === optionTypes.SCALING_ALGORITHM.AUTO;
+            const targetScale = stateRef.current.outputScale || 1;
+            const finalWidth = canvas.width * targetScale;
+            const finalHeight = canvas.height * targetScale;
+            if (outCanvas.width !== finalWidth || outCanvas.height !== finalHeight) {
+                outCanvas.width = finalWidth;
+                outCanvas.height = finalHeight;
+            }
+            outCtx.drawImage(canvas, 0, 0, finalWidth, finalHeight);
+        }
+    }
+
+    dispatch({ type: "FILTER_IMAGE", image: null as any, frameToken, time: sourceTime, frameTime: totalTime, stepTimes });
     if (pendingFilterRef.current) {
       pendingFilterRef.current = false;
       requestAnimationFrame(() => {
@@ -699,7 +668,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
 
   const filterImageAsync: FilterRunner = (input) => {
     if (!input) return;
-    // Drop frame if previous filter hasn't finished (prevents queue buildup during video)
     if (filteringRef.current) {
       pendingFilterRef.current = true;
       return;
@@ -730,7 +698,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const stepTimes: { name: string; ms: number; backend?: string }[] = [];
-
     const enabledEntries = chain.filter((e) => e.enabled && typeof e.filter?.func === "function");
 
     let startIdx = 0;
@@ -752,14 +719,10 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     const useWorker = USE_WORKER;
 
     if (useWorker && entriesToRun.length > 0) {
-      // Worker path — async, dispatches output when done
       const ctx = (canvas instanceof HTMLCanvasElement
         ? canvas.getContext("2d", { willReadFrequently: true })
         : canvas.getContext("2d", { willReadFrequently: true })
-      ) as
-        | CanvasRenderingContext2D
-        | OffscreenCanvasRenderingContext2D
-        | null;
+      ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
       if (!ctx) { filteringRef.current = false; return; }
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
@@ -770,35 +733,7 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
         options: serializeOptions(withAudioModulatedOptions(e)),
       }));
 
-      const serializedPrevOutputs: Record<string, ArrayBuffer> = {};
-      for (const entry of entriesToRun) {
-        const prev = prevOutputMapRef.current.get(entry.id);
-        if (prev) {
-          const copy = new Uint8ClampedArray(prev);
-          serializedPrevOutputs[entry.id] = copy.buffer as ArrayBuffer;
-        }
-      }
-      const serializedPrevInputs: Record<string, ArrayBuffer> = {};
-      for (const entry of entriesToRun) {
-        const prev = prevInputMapRef.current.get(entry.id);
-        if (prev) {
-          const copy = new Uint8ClampedArray(prev);
-          serializedPrevInputs[entry.id] = copy.buffer as ArrayBuffer;
-        }
-      }
-      const serializedEmaMaps: Record<string, ArrayBuffer> = {};
-      for (const entry of entriesToRun) {
-        const ema = emaMapRef.current.get(entry.id);
-        if (ema) {
-          const copy = new Float32Array(ema);
-          serializedEmaMaps[entry.id] = copy.buffer as ArrayBuffer;
-        }
-      }
-
       const transfers: ArrayBuffer[] = [imageData.data.buffer];
-      for (const buf of Object.values(serializedPrevOutputs)) transfers.push(buf);
-      for (const buf of Object.values(serializedPrevInputs)) transfers.push(buf);
-      for (const buf of Object.values(serializedEmaMaps)) transfers.push(buf);
 
       workerRPC({
         imageData: imageData.data.buffer,
@@ -811,62 +746,18 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
         wasmAcceleration: curState.wasmAcceleration,
         webglAcceleration: curState.webglAcceleration,
         convertGrayscale: false,
-        prevOutputs: serializedPrevOutputs,
-        prevInputs: serializedPrevInputs,
-        emaMaps: serializedEmaMaps,
-        // Propagate degauss trigger to rgbStripe in the worker. -Infinity
-        // (the "never degaussed" sentinel) doesn't survive structured-clone
-        // cleanly — use a large negative sentinel instead so the worker
-        // sees a finite number.
         degaussFrame: Number.isFinite(degaussFrameRef.current) ? degaussFrameRef.current : -2147483648,
-      }, transfers).then((result) => {
+      }, transfers, (worker) => { filterWorkerRef.current = worker; }).then((result) => {
         const outData = new ImageData(
           new Uint8ClampedArray(result.imageData), result.width, result.height
         );
         const outCanvas = document.createElement("canvas");
         outCanvas.width = result.width;
         outCanvas.height = result.height;
-        // willReadFrequently on the first getContext call — subsequent filter
-        // passes will do getImageData on this canvas repeatedly, and the flag
-        // is sticky from the first call.
         outCanvas.getContext("2d", { willReadFrequently: true })!.putImageData(outData, 0, 0);
-
-        for (const [entryId, payload] of Object.entries(result.prevOutputs)) {
-          const { pixels, width, height } = getWorkerPrevOutputFrame(
-            payload as WorkerPrevOutputPayload,
-            result.width,
-            result.height
-          );
-          prevOutputMapRef.current.set(entryId, pixels);
-
-          // Reconstruct intermediate canvas for step previews.
-          // Reuse existing canvas to avoid allocation churn during animation.
-          let stepCanvas = cachedOutputsRef.current.get(entryId);
-          if (!stepCanvas || stepCanvas.width !== width || stepCanvas.height !== height) {
-            stepCanvas = document.createElement("canvas");
-            stepCanvas.width = width;
-            stepCanvas.height = height;
-          }
-          stepCanvas.getContext("2d", { willReadFrequently: true })!.putImageData(
-            new ImageData(pixels, width, height), 0, 0
-          );
-          cachedOutputsRef.current.set(entryId, stepCanvas);
-        }
-
-        // Merge the worker's updated temporal state back into the refs so
-        // next frame's request carries fresh prev-input / EMA buffers.
-        for (const [entryId, buffer] of Object.entries(result.prevInputs ?? {})) {
-          prevInputMapRef.current.set(entryId, new Uint8ClampedArray(buffer));
-        }
-        for (const [entryId, buffer] of Object.entries(result.emaMaps ?? {})) {
-          emaMapRef.current.set(entryId, new Float32Array(buffer));
-        }
 
         const workerStepTimes = [...stepTimes, ...result.stepTimes];
         const workerTotalTime = result.stepTimes.reduce((a, s) => a + s.ms, 0);
-        // Record worker-side durations too — a filter that hangs the worker
-        // shouldn't get reselected by the random-chain cycler. Prefer the
-        // canonical filterName; fall back to displayName for older payloads.
         for (const step of result.stepTimes) {
           recordFilterStepMs(step.filterName ?? step.name, step.ms);
         }
@@ -877,8 +768,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
         emitOutput(fallback.canvas, fallback.totalTime, [...stepTimes, ...fallback.stepTimes], sourceFrameToken, sourceTime);
       });
     } else {
-      // Main thread path — may await filters that return a Promise
-      // (e.g. glitchblob's async Blob round-trip).
       void (async () => {
         const result = await filterOnMainThread(canvas, enabledEntries, startIdx, Boolean(isAnimating), curState);
         stepTimes.push(...result.stepTimes);
@@ -893,20 +782,15 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       const ctx = new AudioContext();
       const duration = 2.2;
       const now = ctx.currentTime;
-
-      // Master gain — overall envelope
       const master = ctx.createGain();
       master.gain.setValueAtTime(0, now);
-      // Sharp attack from relay thunk
       master.gain.linearRampToValueAtTime(0.35, now + 0.02);
-      // Sustain then decay like a thermistor reducing current
       master.gain.setValueAtTime(0.3, now + 0.1);
       master.gain.exponentialRampToValueAtTime(0.15, now + 0.5);
       master.gain.exponentialRampToValueAtTime(0.03, now + 1.5);
       master.gain.exponentialRampToValueAtTime(0.001, now + duration);
       master.connect(ctx.destination);
 
-      // Low resonant filter — the degauss coil acts as a resonant cavity
       const filter = ctx.createBiquadFilter();
       filter.type = "lowpass";
       filter.frequency.setValueAtTime(300, now);
@@ -914,12 +798,10 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       filter.Q.setValueAtTime(3, now);
       filter.connect(master);
 
-      // 50Hz mains hum — core degauss frequency with wobble
       const hum = ctx.createOscillator();
       hum.type = "sawtooth";
       hum.frequency.setValueAtTime(55, now);
       hum.frequency.linearRampToValueAtTime(48, now + duration);
-      // LFO to wobble the hum frequency (warbling quality)
       const lfo = ctx.createOscillator();
       lfo.frequency.setValueAtTime(8, now);
       lfo.frequency.linearRampToValueAtTime(3, now + duration);
@@ -935,7 +817,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       hum.start(now);
       hum.stop(now + duration);
 
-      // 100Hz second harmonic
       const harm2 = ctx.createOscillator();
       harm2.type = "sawtooth";
       harm2.frequency.setValueAtTime(110, now);
@@ -946,7 +827,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       harm2.start(now);
       harm2.stop(now + duration);
 
-      // 150Hz metallic buzz
       const harm3 = ctx.createOscillator();
       harm3.type = "square";
       harm3.frequency.setValueAtTime(165, now);
@@ -957,7 +837,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       harm3.start(now);
       harm3.stop(now + duration);
 
-      // Sub-bass body — the physical vibration of the coil/chassis
       const sub = ctx.createOscillator();
       sub.type = "sine";
       sub.frequency.setValueAtTime(30, now);
@@ -968,7 +847,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       sub.start(now);
       sub.stop(now + duration);
 
-      // Initial relay thunk — filtered noise burst
       const thunkLen = Math.round(ctx.sampleRate * 0.06);
       const thunkBuf = ctx.createBuffer(1, thunkLen, ctx.sampleRate);
       const thunkData = thunkBuf.getChannelData(0);
@@ -987,15 +865,12 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       thunk.connect(thunkFilter).connect(thunkGain).connect(master);
       thunk.start(now);
 
-      // Clean up
       setTimeout(() => ctx.close(), (duration + 0.2) * 1000);
-    } catch {
-      // Audio not available — degauss visually only
-    }
+    } catch { }
   };
 
   const triggerDegauss = (inputCanvas: HTMLCanvasElement | null) => {
-    if (degaussAnimRef.current != null) return; // already running
+    if (degaussAnimRef.current != null) return;
     degaussFrameRef.current = frameCountRef.current;
     playDegaussSound();
     const DEGAUSS_FRAMES = 45;
@@ -1013,15 +888,13 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const triggerBurst = (inputCanvas: HTMLCanvasElement | null, frames: number, fps = 6) => {
-    if (animLoopRef.current != null) return; // don't overlap with running animation
+    if (animLoopRef.current != null) return;
     const interval = 1000 / fps;
     let frame = 0;
     let lastTime = 0;
     const animate = (timestamp: number) => {
       if (frame >= frames || !inputCanvas) {
         animLoopRef.current = null;
-        // Fire one final non-animated render so _isAnimating=false,
-        // guaranteeing we end on a normal display phase
         requestAnimationFrame(() => {
           filterImageAsync(inputCanvas);
         });
@@ -1038,7 +911,7 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const startAnimLoop = (inputCanvas: HTMLCanvasElement | null, fps = 15) => {
-    if (animLoopRef.current != null) return; // already running
+    if (animLoopRef.current != null) return;
     animParamsRef.current = { inputCanvas, fps };
     animLastTimeRef.current = 0;
     const animate = (timestamp: number) => {
@@ -1073,12 +946,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
 
   const isAnimating = () => animLoopRef.current != null;
 
-  // Called after any chain mutation. If the current animation loop was
-  // started by `autoAnimate` and no filter in the chain still opts in,
-  // stop the loop so we don't keep running the pipeline for no visible
-  // reason. User-started loops (clicking Play on a filter) are left
-  // alone so removing one filter doesn't kill an animation the user
-  // explicitly started on another.
   const maybeStopAutoAnimLoop = () => {
     if (!animLoopAutoStartedRef.current) return;
     const chain = stateRef.current.chain;
@@ -1086,9 +953,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     if (!stillWantsAuto) stopAnimLoop();
   };
 
-  // Release a cached chain-step canvas back to the pool instead of just
-  // dropping the reference — the pool is only useful if someone feeds it.
-  // Safe to call with a missing id.
   const evictCachedOutput = (id: string) => {
     const c = cachedOutputsRef.current.get(id);
     if (c) releasePooledCanvas(c);
@@ -1176,9 +1040,9 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     },
     selectFilter: (name, filter) => {
       stopAnimLoop();
-      prevOutputMapRef.current.clear();
-      prevInputMapRef.current.clear();
-      emaMapRef.current.clear();
+      mainThreadPrevOutputMap.current.clear();
+      mainThreadPrevInputMap.current.clear();
+      mainThreadEmaMap.current.clear();
       clearMotionVectorsState();
       clearCachedOutputs();
       dispatch({ type: "SELECT_FILTER", name, filter });
@@ -1216,6 +1080,9 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     loadWebcamAsync,
     setInputCanvas: (canvas: HTMLCanvasElement | null) =>
       dispatch({ type: "SET_INPUT_CANVAS", canvas }),
+    setOutputCanvas: (canvas: HTMLCanvasElement | null) => {
+      outputCanvasRef.current = canvas;
+    },
     setInputVolume: (volume: number) =>
       dispatch({ type: "SET_INPUT_VOLUME", volume }),
     setInputPlaybackRate: (rate: number) =>
@@ -1235,7 +1102,6 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       dispatch({ type: "SET_SCALING_ALGORITHM", algorithm }),
     setFilterOption: (optionName: string, value: FilterOptionValue, chainIndex?: number) => {
       const ci = chainIndex ?? stateRef.current.activeIndex;
-      // Invalidate cache from this entry onward
       const chain = stateRef.current.chain;
       for (let i = ci; i < chain.length; i++) {
         evictCachedOutput(chain[i].id);
@@ -1277,9 +1143,9 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     },
     importState: (json: string) => {
       const deserialized = JSON.parse(json) as SerializedFilterState;
-      prevOutputMapRef.current.clear();
-      prevInputMapRef.current.clear();
-      emaMapRef.current.clear();
+      mainThreadPrevOutputMap.current.clear();
+      mainThreadPrevInputMap.current.clear();
+      mainThreadEmaMap.current.clear();
       clearMotionVectorsState();
       dispatch({ type: "LOAD_STATE", data: deserialized });
       restoreAudioVizFromShareState(deserialized);
@@ -1297,14 +1163,9 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       delete THEMES[name];
       dispatch({ type: "DELETE_CURRENT_COLOR_PALETTE", name });
     },
-    // Chain actions
     chainAdd: (displayName: string, filter) => {
       clearMotionVectorsState();
       dispatch({ type: "CHAIN_ADD", displayName, filter });
-      // Filters with `autoAnimate: true` in their metadata (e.g., CRT
-      // Degauss) kick off the animation loop on add so the user doesn't
-      // have to hunt for a Play/Stop control. Skip if a loop is already
-      // running (another filter may have started it).
       if (filter?.autoAnimate && animLoopRef.current == null) {
         const canvas = stateRef.current.inputCanvas;
         if (canvas instanceof HTMLCanvasElement) {
@@ -1314,21 +1175,18 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       }
     },
     chainRemove: (id: string) => {
-      prevOutputMapRef.current.delete(id);
-      prevInputMapRef.current.delete(id);
-      emaMapRef.current.delete(id);
+      mainThreadPrevOutputMap.current.delete(id);
+      mainThreadPrevInputMap.current.delete(id);
+      mainThreadEmaMap.current.delete(id);
       evictCachedOutput(id);
       clearMotionVectorsState();
       dispatch({ type: "CHAIN_REMOVE", id });
       maybeStopAutoAnimLoop();
     },
     chainReorder: (fromIndex: number, toIndex: number) => {
-      prevOutputMapRef.current.clear();
-      prevInputMapRef.current.clear();
-      emaMapRef.current.clear();
-      // Reordering invalidates every cached step — a canvas cached at
-      // position N is no longer the right output for whatever filter
-      // ends up at N after the swap.
+      mainThreadPrevOutputMap.current.clear();
+      mainThreadPrevInputMap.current.clear();
+      mainThreadEmaMap.current.clear();
       clearCachedOutputs();
       clearMotionVectorsState();
       dispatch({ type: "CHAIN_REORDER", fromIndex, toIndex });
@@ -1341,22 +1199,20 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       maybeStopAutoAnimLoop();
     },
     chainShuffle: () => {
-      prevOutputMapRef.current.clear();
-      prevInputMapRef.current.clear();
-      emaMapRef.current.clear();
+      mainThreadPrevOutputMap.current.clear();
+      mainThreadPrevInputMap.current.clear();
+      mainThreadEmaMap.current.clear();
       clearCachedOutputs();
       clearMotionVectorsState();
       dispatch({ type: "CHAIN_SHUFFLE" });
     },
     chainReplace: (id: string, displayName: string, filter) => {
-      prevOutputMapRef.current.delete(id);
-      prevInputMapRef.current.delete(id);
-      emaMapRef.current.delete(id);
+      mainThreadPrevOutputMap.current.delete(id);
+      mainThreadPrevInputMap.current.delete(id);
+      mainThreadEmaMap.current.delete(id);
       evictCachedOutput(id);
       clearMotionVectorsState();
       dispatch({ type: "CHAIN_REPLACE", id, displayName, filter });
-      // If the new filter is autoAnimate and no loop is running, start
-      // one; otherwise maybe stop an auto-loop whose trigger is gone.
       if (filter?.autoAnimate && animLoopRef.current == null) {
         const canvas = stateRef.current.inputCanvas;
         if (canvas instanceof HTMLCanvasElement) {
@@ -1388,9 +1244,9 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       try {
         const text = await navigator.clipboard.readText();
         const data = JSON.parse(text) as SerializedFilterState;
-        prevOutputMapRef.current.clear();
-        prevInputMapRef.current.clear();
-        emaMapRef.current.clear();
+        mainThreadPrevOutputMap.current.clear();
+        mainThreadPrevInputMap.current.clear();
+        mainThreadEmaMap.current.clear();
         clearMotionVectorsState();
         clearCachedOutputs();
         dispatch({ type: "LOAD_STATE", data });

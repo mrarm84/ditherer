@@ -58,6 +58,7 @@ const getWorker = (): Worker => {
 export const workerRPC = (
   payload: WorkerFilterRequest,
   transfer: Transferable[] = [],
+  onWorkerCreated?: (worker: Worker) => void,
 ): Promise<WorkerFilterResult> => {
   const id = nextId++;
   return new Promise((resolve, reject) => {
@@ -71,7 +72,9 @@ export const workerRPC = (
       resetWorker(new Error(`Worker timeout after ${WORKER_TIMEOUT_MS}ms`));
     }, WORKER_TIMEOUT_MS);
     try {
-      getWorker().postMessage({ id, ...payload }, transfer);
+      const w = getWorker();
+      if (onWorkerCreated) onWorkerCreated(w);
+      w.postMessage({ id, ...payload }, transfer);
     } catch (err) {
       if (entry.timer != null) clearTimeout(entry.timer);
       pending.delete(id);

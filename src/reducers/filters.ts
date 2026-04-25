@@ -350,7 +350,7 @@ type ImageAction =
     }
   | {
       type: typeof FILTER_IMAGE;
-      image: HTMLCanvasElement;
+      image: HTMLCanvasElement | null;
       frameToken?: number;
       time?: number | null;
       frameTime?: number | null;

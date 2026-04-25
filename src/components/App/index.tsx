@@ -1304,7 +1304,11 @@ const App = () => {
     if (el) el.getContext("2d", { willReadFrequently: true });
   };
   const inputCanvasRefCb = bindReadbackCanvasRef(inputCanvasRef);
-  const outputCanvasRefCb = bindReadbackCanvasRef(outputCanvasRef);
+  const outputCanvasRefCb = (el: HTMLCanvasElement | null) => {
+    outputCanvasRef.current = el;
+    if (el) el.getContext("2d", { willReadFrequently: true });
+    actions.setOutputCanvas(el);
+  };
   const outputWindowRef = useRef<HTMLDivElement | null>(null);
   const fullscreenMenuRef = useRef<HTMLDivElement | null>(null);
   const screensaverButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -1660,17 +1664,12 @@ const App = () => {
       drawToCanvas(inputCanvasRef.current, state.inputImage, state.scale);
     }
 
-    if (outputCanvasRef.current && state.outputImage && state.outputImage !== prev.outputImage) {
-      drawToCanvas(outputCanvasRef.current, state.outputImage, state.outputScale);
-    }
-
     prevPropsRef.current = {
       inputImage: state.inputImage,
-      outputImage: state.outputImage,
       scale: state.scale,
       time: state.time,
     };
-  }, [state.inputImage, state.outputImage, state.scale, state.outputScale, state.time, state.scalingAlgorithm]);
+  }, [state.inputImage, state.scale, state.outputScale, state.time, state.scalingAlgorithm]);
 
   // Auto-filter when settings change and realtimeFiltering is on
   useEffect(() => {

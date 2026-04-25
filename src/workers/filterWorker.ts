@@ -51,6 +51,17 @@ const has2dContext = (canvas: unknown): canvas is WorkerCanvasLike =>
   && "height" in canvas
   && typeof (canvas as WorkerCanvasLike).getContext === "function";
 
+// --- PERSISTENT WORKER STATE ---
+let workerPrevOutputs: Record<string, Uint8ClampedArray> = {};
+let workerPrevInputs: Record<string, Uint8ClampedArray> = {};
+let workerEmaMaps: Record<string, Float32Array> = {};
+
+function clearPersistentState() {
+    workerPrevOutputs = {};
+    workerPrevInputs = {};
+    workerEmaMaps = {};
+}
+
 export const runWorkerFilterRequest = async (
   {
     imageData,
@@ -63,9 +74,6 @@ export const runWorkerFilterRequest = async (
     wasmAcceleration,
     webglAcceleration,
     convertGrayscale,
-    prevOutputs,
-    prevInputs,
-    emaMaps,
     degaussFrame,
   }: WorkerFilterRequest,
   createCanvas: WorkerCanvasFactory = defaultCanvasFactory,
@@ -76,6 +84,7 @@ export const runWorkerFilterRequest = async (
     | CanvasRenderingContext2D
     | null;
   if (!initCtx) throw new Error("Failed to get 2d context");
+  
   initCtx.putImageData(
     new ImageData(new Uint8ClampedArray(imageData), width, height), 0, 0
   );
@@ -88,10 +97,6 @@ export const runWorkerFilterRequest = async (
   }
 
   const stepTimes: { name: string; filterName?: string; ms: number; backend?: string }[] = [];
-  const newPrevOutputs: Record<string, WorkerPrevOutputFrame> = {};
-  const newPrevInputs: Record<string, ArrayBuffer> = {};
-  const newEmaMaps: Record<string, ArrayBuffer> = {};
-  // Matches FilterContext's main-thread EMA alpha — ~10-frame window.
   const EMA_ALPHA = 0.1;
 
   for (const entry of chain) {
@@ -104,29 +109,18 @@ export const runWorkerFilterRequest = async (
     opts._linearize = linearize;
     opts._wasmAcceleration = wasmAcceleration;
     opts._webglAcceleration = webglAcceleration;
-    opts._prevOutput = prevOutputs?.[entry.id]
-      ? new Uint8ClampedArray(prevOutputs[entry.id])
-      : null;
-    opts._prevInput = prevInputs?.[entry.id]
-      ? new Uint8ClampedArray(prevInputs[entry.id])
-      : null;
-    opts._ema = emaMaps?.[entry.id]
-      ? new Float32Array(emaMaps[entry.id])
-      : null;
+    opts._prevOutput = workerPrevOutputs[entry.id] || null;
+    opts._prevInput = workerPrevInputs[entry.id] || null;
+    opts._ema = workerEmaMaps[entry.id] || null;
     opts._degaussFrame = degaussFrame;
 
-    // Capture input BEFORE the filter runs — same semantics as the main-
-    // thread path: this frame's input becomes next frame's prev-input,
-    // and feeds the EMA update after the filter finishes.
     let inputSnapshot: Uint8ClampedArray | null = null;
     const inCtx = canvas.getContext("2d", { willReadFrequently: true }) as
       | OffscreenCanvasRenderingContext2D
       | CanvasRenderingContext2D
       | null;
     if (inCtx) {
-      inputSnapshot = new Uint8ClampedArray(
-        inCtx.getImageData(0, 0, canvas.width, canvas.height).data,
-      );
+      inputSnapshot = inCtx.getImageData(0, 0, canvas.width, canvas.height).data;
     }
 
     if (opts.palette?.options) {
@@ -147,10 +141,6 @@ export const runWorkerFilterRequest = async (
     } else {
       try {
         const raw = filter.func(canvas, opts) as FilterCanvas | Promise<FilterCanvas> | undefined;
-        // Filters may return a Promise for async work (e.g. glitchblob
-        // round-trips the canvas through Blob+ImageBitmap). The sync
-        // return shape stays untouched; the promise branch just gives
-        // us a uniform contract for both.
         output = (raw && typeof (raw as { then?: unknown }).then === "function")
           ? await (raw as Promise<FilterCanvas>)
           : (raw as FilterCanvas | undefined);
@@ -172,38 +162,23 @@ export const runWorkerFilterRequest = async (
         | CanvasRenderingContext2D
         | null;
       if (outCtx) {
-        const outData = outCtx.getImageData(0, 0, output.width, output.height).data;
-        newPrevOutputs[entry.id] = {
-          imageData: outData.buffer,
-          width: output.width,
-          height: output.height,
-        };
+        workerPrevOutputs[entry.id] = outCtx.getImageData(0, 0, output.width, output.height).data;
       }
-      // The worker has no step cache, so the previous canvas becomes
-      // garbage the moment `canvas = output` lands. Return it to the
-      // pool first; the next filter's `cloneCanvas` picks it up.
       if (canvas !== output) releasePooledCanvas(canvas);
       canvas = output;
     }
 
-    // Update per-entry temporal state after the filter finishes — this
-    // frame's captured input becomes next frame's _prevInput, and feeds
-    // the EMA blend. Mirrors FilterContext.filterOnMainThread so both
-    // dispatch paths write to state the same way.
     if (inputSnapshot) {
-      newPrevInputs[entry.id] = inputSnapshot.buffer as ArrayBuffer;
-      const prevEmaBuf = emaMaps?.[entry.id];
-      let ema: Float32Array;
-      if (prevEmaBuf && prevEmaBuf.byteLength === inputSnapshot.length * 4) {
-        ema = new Float32Array(prevEmaBuf);
+      workerPrevInputs[entry.id] = inputSnapshot;
+      let ema = workerEmaMaps[entry.id];
+      if (ema && ema.length === inputSnapshot.length) {
         const oneMinusAlpha = 1 - EMA_ALPHA;
         for (let j = 0; j < ema.length; j++) {
           ema[j] = ema[j] * oneMinusAlpha + inputSnapshot[j] * EMA_ALPHA;
         }
       } else {
-        ema = new Float32Array(inputSnapshot);
+        workerEmaMaps[entry.id] = new Float32Array(inputSnapshot);
       }
-      newEmaMaps[entry.id] = ema.buffer as ArrayBuffer;
     }
   }
 
@@ -219,26 +194,26 @@ export const runWorkerFilterRequest = async (
     width: canvas.width,
     height: canvas.height,
     stepTimes,
-    prevOutputs: newPrevOutputs,
-    prevInputs: newPrevInputs,
-    emaMaps: newEmaMaps,
+    prevOutputs: {},
+    prevInputs: {},
+    emaMaps: {},
   };
 };
 
 if (typeof self !== "undefined") {
-  self.onmessage = async (e: MessageEvent<WorkerRequestMessage>) => {
+  self.onmessage = async (e: MessageEvent<any>) => {
     const workerScope = self as unknown as WorkerMessageTarget;
-    const { id, ...request } = e.data;
+    const { id, type, ...request } = e.data;
+
+    if (type === "CLEAR_STATE") {
+        clearPersistentState();
+        workerScope.postMessage({ id, success: true }, []);
+        return;
+    }
 
     try {
-      const result = await runWorkerFilterRequest(request);
-
-      const transfers: ArrayBuffer[] = [result.imageData];
-      for (const frame of Object.values(result.prevOutputs)) {
-        transfers.push(frame.imageData);
-      }
-
-      workerScope.postMessage({ id, result }, transfers);
+      const result = await runWorkerFilterRequest(request as WorkerFilterRequest);
+      workerScope.postMessage({ id, result }, [result.imageData]);
     } catch (err: unknown) {
       workerScope.postMessage({
         id,
