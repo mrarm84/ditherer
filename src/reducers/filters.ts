@@ -13,6 +13,8 @@ const SET_FILTER_OPTION = "SET_FILTER_OPTION";
 const SET_FILTER_PALETTE_OPTION = "SET_FILTER_PALETTE_OPTION";
 const ADD_PALETTE_COLOR = "ADD_PALETTE_COLOR";
 const SET_SCALING_ALGORITHM = "SET_SCALING_ALGORITHM";
+const SET_MEDIAPIPE_ENABLED = "SET_MEDIAPIPE_ENABLED";
+const SET_MEDIAPIPE_OPTIONS = "SET_MEDIAPIPE_OPTIONS";
 const SET_LINEARIZE = "SET_LINEARIZE";
 const SET_WASM_ACCELERATION = "SET_WASM_ACCELERATION";
 const SET_WEBGL_ACCELERATION = "SET_WEBGL_ACCELERATION";
@@ -175,6 +177,18 @@ export const initialState = {
   randomCycleSeconds: null as number | null,
   frameTime: null as number | null,
   stepTimes: null as StepTime[] | null,
+  mediapipeEnabled: false,
+  mediapipeOptions: {
+    faceMesh: true,
+    landmarks: true,
+    wireframe: true,
+    wireSurface: false,
+    landmarkColor: "#ff0000",
+    wireframeColor: "#00ff00",
+    wireSurfaceColor: "rgba(0, 255, 0, 0.2)",
+    landmarkSize: 1,
+    wireThickness: 1,
+  },
 };
 
 export type FilterReducerState = typeof initialState;
@@ -391,6 +405,14 @@ export type FilterReducerAction =
   | FilterSelectionAction
   | FilterOptionAction
   | ImageAction
+  | {
+      type: typeof SET_MEDIAPIPE_OPTIONS;
+      options: Partial<FilterReducerState["mediapipeOptions"]>;
+    }
+  | {
+      type: typeof SET_MEDIAPIPE_ENABLED;
+      value: boolean;
+    }
   | ScalarStateAction
   | PalettePersistenceAction;
 
@@ -736,6 +758,16 @@ const filterReducer = (
       return { ...state, webglAcceleration: action.value };
     case SET_RANDOM_CYCLE_SECONDS:
       return { ...state, randomCycleSeconds: action.seconds };
+    case SET_MEDIAPIPE_ENABLED:
+      return { ...state, mediapipeEnabled: action.value };
+    case SET_MEDIAPIPE_OPTIONS:
+      return {
+        ...state,
+        mediapipeOptions: {
+          ...state.mediapipeOptions,
+          ...action.options,
+        },
+      };
     case "SAVE_CURRENT_COLOR_PALETTE":
     case "DELETE_CURRENT_COLOR_PALETTE":
       return state;

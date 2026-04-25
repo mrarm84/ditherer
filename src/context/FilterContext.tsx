@@ -14,6 +14,7 @@ import { releasePooledTextures, glAvailable, glUnavailableStub } from "gl";
 import { releaseFloatTextures } from "gl/fft2d";
 import { workerRPC, USE_WORKER } from "workers/workerRPC";
 import { clearMotionVectorsState } from "filters/motionVectors";
+import { initMediaPipe, processFrame, drawMediaPipeResults } from "utils/mediapipe";
 import { FilterContext } from "./filterContextValue";
 import type { AnimatedVideoElement, ExportFrameOptions, FilterActions, FilterOptionValue } from "./filterContextValue";
 import { getAutoScale, roundScale } from "./autoScale";
@@ -300,7 +301,8 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     playbackRate = 1,
     perfMeta: Record<string, string> = {},
     objectUrlForCleanup?: string,
-    options?: { preserveScale?: boolean }
+    options?: { preserveScale?: boolean },
+    stream?: MediaStream
   ) => new Promise<void>((resolve, reject) => {
     resetProcessingState();
 
@@ -320,6 +322,11 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       try { previousVideo.pause(); } catch { /* ignore */ }
       try {
         previousVideo.removeAttribute("src");
+        if ("srcObject" in previousVideo) {
+          const s = (previousVideo as any).srcObject as MediaStream | null;
+          if (s) s.getTracks().forEach(t => t.stop());
+          (previousVideo as any).srcObject = null;
+        }
         previousVideo.load();
       } catch { /* ignore */ }
       if (previousVideo.__objectUrl) {
@@ -364,10 +371,22 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     }
 
     let rafId: number | null = null;
-    const dispatchCurrentFrame = () => {
+    const dispatchCurrentFrame = async () => {
       try {
         if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+          }
           ctx.drawImage(video, 0, 0);
+
+          if (stateRef.current.mediapipeEnabled) {
+            const mpResult = await processFrame(video);
+            if (mpResult) {
+              drawMediaPipeResults(ctx, mpResult, stateRef.current.mediapipeOptions);
+            }
+          }
+
           const frameToken = ++videoFrameTokenRef.current;
           dispatch({ type: "LOAD_IMAGE", image: canvas, time: video.currentTime, frameToken, video, dispatch });
         }
@@ -440,7 +459,11 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     }
     video.__manualPause = false;
     video.__drawErrorLogged = false;
-    video.src = src;
+    if (stream) {
+      (video as any).srcObject = stream;
+    } else {
+      video.src = src;
+    }
     video.play().catch(() => {
       if (video.src === "") return;
       if (video.muted || volume === 0) return;
@@ -488,6 +511,25 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       return loadImageAsync(file, options);
     }
   }, [loadImageAsync, loadVideoAsync]);
+
+  const loadWebcamAsync = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      // We use loadVideoSourceAsync but need a way to pass the stream.
+      // Modifying loadVideoSourceAsync to handle MediaStream as well.
+      return loadVideoSourceAsync(
+        "", // dummy src, we'll use srcObject
+        0, 1, { type: "webcam" }, undefined, { preserveScale: false },
+        stream
+      );
+    } catch (error) {
+      console.error("Failed to access webcam:", error);
+      throw error;
+    }
+  }, [loadVideoSourceAsync]);
 
   // Execute the full filter chain on the input canvas
   // Serialize filter options for worker (replace palette objects with serializable form)
@@ -1154,8 +1196,15 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       dispatch({ type: "SET_SCALE", scale }),
     setOutputScale: (scale: number) =>
       dispatch({ type: "SET_OUTPUT_SCALE", scale }),
+    setMediapipeEnabled: async (value: boolean) => {
+      if (value) await initMediaPipe();
+      dispatch({ type: "SET_MEDIAPIPE_ENABLED", value });
+    },
+    setMediapipeOptions: (options: Partial<FilterReducerState["mediapipeOptions"]>) =>
+      dispatch({ type: "SET_MEDIAPIPE_OPTIONS", options }),
     setRealtimeFiltering: (enabled: boolean) =>
       dispatch({ type: "SET_REAL_TIME_FILTERING", enabled }),
+    loadWebcamAsync,
     setInputCanvas: (canvas: HTMLCanvasElement | null) =>
       dispatch({ type: "SET_INPUT_CANVAS", canvas }),
     setInputVolume: (volume: number) =>

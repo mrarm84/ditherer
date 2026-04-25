@@ -5,13 +5,13 @@
 
 interface Binding {
   element: HTMLElement;
-  midiId?: string; // Stable ID to find element if DOM node is replaced
+  midiId?: string | undefined; // Stable ID to find element if DOM node is replaced
   min: number;
   max: number;
   type: "range" | "checkbox" | "button";
 }
 
-let learnState: { element: HTMLElement; midiId?: string; min: number; max: number; type: "range" | "checkbox" | "button" } | null = null;
+let learnState: { element: HTMLElement; midiId?: string | undefined; min: number; max: number; type: "range" | "checkbox" | "button" } | null = null;
 const ccBindings: Record<number, Binding[]> = {};
 const sliderRanges = new WeakMap<HTMLElement, { min: number; max: number }>();
 const inertiaMap = new WeakMap<HTMLElement, { interval: number; timeout: number }>();

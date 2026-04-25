@@ -15,7 +15,7 @@ export interface ControlProps<TDefinition = FilterOptionDefinition, TValue = unk
   value: TValue;
   hideLabel?: boolean;
   onSetFilterOption: ControlSetter;
-  idPrefix?: string;
+  idPrefix?: string | undefined;
 }
 
 export type BoolControlProps = ControlProps<ControlMeta, boolean>;

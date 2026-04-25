@@ -2525,6 +2525,27 @@ const App = () => {
               >
                 Vid?
               </button>
+              <button
+                className={s.testMediaButton}
+                onClick={() => {
+                   actions.setMediapipeEnabled(false);
+                   void actions.loadWebcamAsync();
+                }}
+                title="Load webcam"
+              >
+                Cam
+              </button>
+              <button
+                className={s.testMediaButton}
+                onClick={() => {
+                   void actions.setMediapipeEnabled(true);
+                   void actions.loadWebcamAsync();
+                }}
+                title="Load webcam with MediaPipe face mesh"
+              >
+                Mesh
+              </button>
+
             </div>
           </div>
           {(state.inputImage || state.video) && (
@@ -2646,6 +2667,75 @@ const App = () => {
                     </label>
                   </div>
                 </>)}
+              </fieldset>
+            </CollapsibleSection>
+          )}
+
+          {state.mediapipeEnabled && (
+            <CollapsibleSection title="MediaPipe Mesh">
+              <fieldset className={[controls.optionGroup, s.inputTweaks].join(" ")}>
+                <legend className={controls.optionGroupLegend}>Mesh Settings</legend>
+                
+                <div className={controls.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={state.mediapipeOptions.landmarks}
+                    onChange={e => actions.setMediapipeOptions({ landmarks: e.target.checked })}
+                  />
+                  <span className={controls.label}>Show landmarks</span>
+                </div>
+
+                <div className={controls.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={state.mediapipeOptions.wireframe}
+                    onChange={e => actions.setMediapipeOptions({ wireframe: e.target.checked })}
+                  />
+                  <span className={controls.label}>Show wireframe</span>
+                </div>
+
+                <div className={controls.checkbox}>
+                  <input
+                    type="checkbox"
+                    checked={state.mediapipeOptions.wireSurface}
+                    onChange={e => actions.setMediapipeOptions({ wireSurface: e.target.checked })}
+                  />
+                  <span className={controls.label}>Show wire surface</span>
+                </div>
+
+                <Range
+                  name="Landmark size"
+                  types={{ range: [0.5, 10], desc: "Size of landmark dots" }}
+                  step={0.5}
+                  onSetFilterOption={(_, value) => actions.setMediapipeOptions({ landmarkSize: Number(value) })}
+                  value={state.mediapipeOptions.landmarkSize}
+                />
+
+                <Range
+                  name="Wire thickness"
+                  types={{ range: [0.5, 10], desc: "Thickness of wireframe lines" }}
+                  step={0.5}
+                  onSetFilterOption={(_, value) => actions.setMediapipeOptions({ wireThickness: Number(value) })}
+                  value={state.mediapipeOptions.wireThickness}
+                />
+
+                <div className={s.inputTweakRow}>
+                  <span className={controls.label}>Landmark color</span>
+                  <input
+                    type="color"
+                    value={state.mediapipeOptions.landmarkColor}
+                    onChange={e => actions.setMediapipeOptions({ landmarkColor: e.target.value })}
+                  />
+                </div>
+
+                <div className={s.inputTweakRow}>
+                  <span className={controls.label}>Wire color</span>
+                  <input
+                    type="color"
+                    value={state.mediapipeOptions.wireframeColor}
+                    onChange={e => actions.setMediapipeOptions({ wireframeColor: e.target.value })}
+                  />
+                </div>
               </fieldset>
             </CollapsibleSection>
           )}
