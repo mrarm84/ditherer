@@ -336,7 +336,8 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const loadStartedScale = stateRef.current.scale;
-    const video = document.createElement("video") as AnimatedVideoElement;
+    const video = document.createElement("video") as AnimatedVideoElement & { __isWebcam?: boolean };
+    if (stream) video.__isWebcam = true;
     const perfStart = performance.now();
     const logPerf = (stage: string) => {
       const elapsedMs = Math.round(performance.now() - perfStart);
@@ -514,8 +515,9 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
 
   const loadWebcamAsync = useCallback(async () => {
     try {
+      const [width, height] = stateRef.current.webcamResolution;
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { width: { ideal: width }, height: { ideal: height } },
         audio: false
       });
       // We use loadVideoSourceAsync but need a way to pass the stream.
@@ -1196,6 +1198,13 @@ export const FilterProvider = ({ children }: { children: ReactNode }) => {
       dispatch({ type: "SET_SCALE", scale }),
     setOutputScale: (scale: number) =>
       dispatch({ type: "SET_OUTPUT_SCALE", scale }),
+    setWebcamResolution: (resolution: [number, number]) => {
+      dispatch({ type: "SET_WEBCAM_RESOLUTION", resolution });
+      const video = stateRef.current.video as any;
+      if (video && video.__isWebcam) {
+         void loadWebcamAsync();
+      }
+    },
     setMediapipeEnabled: async (value: boolean) => {
       if (value) await initMediaPipe();
       dispatch({ type: "SET_MEDIAPIPE_ENABLED", value });

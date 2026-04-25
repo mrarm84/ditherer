@@ -42,6 +42,7 @@ export interface FilterActions {
   setRandomCycleSeconds: (seconds: number | null) => void;
   setScale: (scale: number) => void;
   setOutputScale: (scale: number) => void;
+  setWebcamResolution: (resolution: [number, number]) => void;
   setMediapipeEnabled: (enabled: boolean) => void;
   setMediapipeOptions: (options: Partial<FilterState["mediapipeOptions"]>) => void;
   setRealtimeFiltering: (enabled: boolean) => void;

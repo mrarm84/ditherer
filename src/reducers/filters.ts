@@ -15,6 +15,7 @@ const ADD_PALETTE_COLOR = "ADD_PALETTE_COLOR";
 const SET_SCALING_ALGORITHM = "SET_SCALING_ALGORITHM";
 const SET_MEDIAPIPE_ENABLED = "SET_MEDIAPIPE_ENABLED";
 const SET_MEDIAPIPE_OPTIONS = "SET_MEDIAPIPE_OPTIONS";
+const SET_WEBCAM_RESOLUTION = "SET_WEBCAM_RESOLUTION";
 const SET_LINEARIZE = "SET_LINEARIZE";
 const SET_WASM_ACCELERATION = "SET_WASM_ACCELERATION";
 const SET_WEBGL_ACCELERATION = "SET_WEBGL_ACCELERATION";
@@ -178,6 +179,7 @@ export const initialState = {
   frameTime: null as number | null,
   stepTimes: null as StepTime[] | null,
   mediapipeEnabled: false,
+  webcamResolution: [1280, 720] as [number, number],
   mediapipeOptions: {
     faceMesh: true,
     landmarks: true,
@@ -383,6 +385,10 @@ type ScalarStateAction =
   | {
       type: typeof SET_SCALING_ALGORITHM;
       algorithm: ScalingAlgorithm;
+    }
+  | {
+      type: typeof SET_WEBCAM_RESOLUTION;
+      resolution: [number, number];
     }
   | {
       type: typeof SET_RANDOM_CYCLE_SECONDS;
@@ -760,6 +766,8 @@ const filterReducer = (
       return { ...state, randomCycleSeconds: action.seconds };
     case SET_MEDIAPIPE_ENABLED:
       return { ...state, mediapipeEnabled: action.value };
+    case SET_WEBCAM_RESOLUTION:
+      return { ...state, webcamResolution: action.resolution };
     case SET_MEDIAPIPE_OPTIONS:
       return {
         ...state,

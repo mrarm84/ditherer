@@ -2530,6 +2530,7 @@ const App = () => {
                 onClick={() => {
                    actions.setMediapipeEnabled(false);
                    void actions.loadWebcamAsync();
+                   setInputFilename("Webcam");
                 }}
                 title="Load webcam"
               >
@@ -2540,11 +2541,26 @@ const App = () => {
                 onClick={() => {
                    void actions.setMediapipeEnabled(true);
                    void actions.loadWebcamAsync();
+                   setInputFilename("Webcam");
                 }}
                 title="Load webcam with MediaPipe face mesh"
-              >
+                >
                 Mesh
-              </button>
+                </button>
+                <select
+                className={s.testMediaButton}
+                value={state.webcamResolution.join("x")}
+                onChange={(e) => {
+                   const [w, h] = e.target.value.split("x").map(Number);
+                   actions.setWebcamResolution([w, h]);
+                }}
+                title="Webcam resolution"
+                >
+                <option value="640x360">360p</option>
+                <option value="854x480">480p</option>
+                <option value="1280x720">720p</option>
+                <option value="1920x1080">1080p</option>
+                </select>
 
             </div>
           </div>
@@ -2600,43 +2616,47 @@ const App = () => {
                 )}
                 {state.video && (<>
                   <div className={controls.separator} />
-                  <div className={s.videoSeekRow}>
-                    <span className={controls.label}>Position</span>
-                    <button
-                      className={s.videoFrameStep}
-                      onClick={() => stepVideoFrame(-1)}
-                      title="Step backward by roughly one frame"
-                    >
-                      &lt;
-                    </button>
-                    <input
-                      className={s.videoSeek}
-                      type="range"
-                      min={0}
-                      max={Number.isFinite(state.video?.duration) && state.video && state.video.duration > 0 ? state.video.duration : 0}
-                      step={0.01}
-                      value={Math.min(
-                        seekDraftTime ?? state.time ?? 0,
-                        Number.isFinite(state.video?.duration) ? state.video?.duration || 0 : 0
-                      )}
-                      onInput={(e) => seekVideo(Number((e.target as HTMLInputElement).value))}
-                      onChange={(e) => flushSeekVideo(Number(e.target.value))}
-                      disabled={!state.video || !Number.isFinite(state.video.duration) || state.video.duration <= 0}
-                      title="Seek through the loaded video"
-                    />
-                    <button
-                      className={s.videoFrameStep}
-                      onClick={() => stepVideoFrame(1)}
-                      title="Step forward by roughly one frame"
-                    >
-                      &gt;
-                    </button>
-                    <span className={s.videoSeekTime}>{formatVideoTime(state.time)} / {formatVideoTime(state.video?.duration)}</span>
-                  </div>
+                  {!(state.video as any).__isWebcam && (
+                    <div className={s.videoSeekRow}>
+                      <span className={controls.label}>Position</span>
+                      <button
+                        className={s.videoFrameStep}
+                        onClick={() => stepVideoFrame(-1)}
+                        title="Step backward by roughly one frame"
+                      >
+                        &lt;
+                      </button>
+                      <input
+                        className={s.videoSeek}
+                        type="range"
+                        min={0}
+                        max={Number.isFinite(state.video?.duration) && state.video && state.video.duration > 0 ? state.video.duration : 0}
+                        step={0.01}
+                        value={Math.min(
+                          seekDraftTime ?? state.time ?? 0,
+                          Number.isFinite(state.video?.duration) ? state.video?.duration || 0 : 0
+                        )}
+                        onInput={(e) => seekVideo(Number((e.target as HTMLInputElement).value))}
+                        onChange={(e) => flushSeekVideo(Number(e.target.value))}
+                        disabled={!state.video || !Number.isFinite(state.video.duration) || state.video.duration <= 0}
+                        title="Seek through the loaded video"
+                      />
+                      <button
+                        className={s.videoFrameStep}
+                        onClick={() => stepVideoFrame(1)}
+                        title="Step forward by roughly one frame"
+                      >
+                        &gt;
+                      </button>
+                      <span className={s.videoSeekTime}>{formatVideoTime(state.time)} / {formatVideoTime(state.video?.duration)}</span>
+                    </div>
+                  )}
                   <div className={s.videoControlRow}>
-                    <button onClick={() => { actions.toggleVideo(); flashPlayPause(videoPaused ? "play" : "pause"); }}>
-                      {videoPaused ? "\u25B6 Play" : "\u23F8 Pause"}
-                    </button>
+                    {!(state.video as any).__isWebcam && (
+                      <button onClick={() => { actions.toggleVideo(); flashPlayPause(videoPaused ? "play" : "pause"); }}>
+                        {videoPaused ? "\u25B6 Play" : "\u23F8 Pause"}
+                      </button>
+                    )}
                     <label className={[controls.label, s.videoRateInline].join(" ")} htmlFor="playback-rate-inline">
                       <span>Rate</span>
                       <input
@@ -2671,71 +2691,82 @@ const App = () => {
             </CollapsibleSection>
           )}
 
-          {state.mediapipeEnabled && (
+          {state.video && (state.video as any).__isWebcam && (
             <CollapsibleSection title="MediaPipe Mesh">
               <fieldset className={[controls.optionGroup, s.inputTweaks].join(" ")}>
-                <legend className={controls.optionGroupLegend}>Mesh Settings</legend>
+                <legend className={controls.optionGroupLegend}>MediaPipe Face Mesh</legend>
                 
                 <div className={controls.checkbox}>
                   <input
                     type="checkbox"
-                    checked={state.mediapipeOptions.landmarks}
-                    onChange={e => actions.setMediapipeOptions({ landmarks: e.target.checked })}
+                    checked={state.mediapipeEnabled}
+                    onChange={e => actions.setMediapipeEnabled(e.target.checked)}
                   />
-                  <span className={controls.label}>Show landmarks</span>
+                  <span className={controls.label} style={{ fontWeight: 'bold' }}>Enabled (High CPU)</span>
                 </div>
 
-                <div className={controls.checkbox}>
-                  <input
-                    type="checkbox"
-                    checked={state.mediapipeOptions.wireframe}
-                    onChange={e => actions.setMediapipeOptions({ wireframe: e.target.checked })}
+                {state.mediapipeEnabled && (<>
+                  <div className={controls.checkbox}>
+                    <input
+                      type="checkbox"
+                      checked={state.mediapipeOptions.landmarks}
+                      onChange={e => actions.setMediapipeOptions({ landmarks: e.target.checked })}
+                    />
+                    <span className={controls.label}>Show landmarks</span>
+                  </div>
+
+                  <div className={controls.checkbox}>
+                    <input
+                      type="checkbox"
+                      checked={state.mediapipeOptions.wireframe}
+                      onChange={e => actions.setMediapipeOptions({ wireframe: e.target.checked })}
+                    />
+                    <span className={controls.label}>Show wireframe</span>
+                  </div>
+
+                  <div className={controls.checkbox}>
+                    <input
+                      type="checkbox"
+                      checked={state.mediapipeOptions.wireSurface}
+                      onChange={e => actions.setMediapipeOptions({ wireSurface: e.target.checked })}
+                    />
+                    <span className={controls.label}>Show wire surface</span>
+                  </div>
+
+                  <Range
+                    name="Landmark size"
+                    types={{ range: [0.5, 10], desc: "Size of landmark dots" }}
+                    step={0.5}
+                    onSetFilterOption={(_, value) => actions.setMediapipeOptions({ landmarkSize: Number(value) })}
+                    value={state.mediapipeOptions.landmarkSize}
                   />
-                  <span className={controls.label}>Show wireframe</span>
-                </div>
 
-                <div className={controls.checkbox}>
-                  <input
-                    type="checkbox"
-                    checked={state.mediapipeOptions.wireSurface}
-                    onChange={e => actions.setMediapipeOptions({ wireSurface: e.target.checked })}
+                  <Range
+                    name="Wire thickness"
+                    types={{ range: [0.5, 10], desc: "Thickness of wireframe lines" }}
+                    step={0.5}
+                    onSetFilterOption={(_, value) => actions.setMediapipeOptions({ wireThickness: Number(value) })}
+                    value={state.mediapipeOptions.wireThickness}
                   />
-                  <span className={controls.label}>Show wire surface</span>
-                </div>
 
-                <Range
-                  name="Landmark size"
-                  types={{ range: [0.5, 10], desc: "Size of landmark dots" }}
-                  step={0.5}
-                  onSetFilterOption={(_, value) => actions.setMediapipeOptions({ landmarkSize: Number(value) })}
-                  value={state.mediapipeOptions.landmarkSize}
-                />
+                  <div className={s.inputTweakRow}>
+                    <span className={controls.label}>Landmark color</span>
+                    <input
+                      type="color"
+                      value={state.mediapipeOptions.landmarkColor}
+                      onChange={e => actions.setMediapipeOptions({ landmarkColor: e.target.value })}
+                    />
+                  </div>
 
-                <Range
-                  name="Wire thickness"
-                  types={{ range: [0.5, 10], desc: "Thickness of wireframe lines" }}
-                  step={0.5}
-                  onSetFilterOption={(_, value) => actions.setMediapipeOptions({ wireThickness: Number(value) })}
-                  value={state.mediapipeOptions.wireThickness}
-                />
-
-                <div className={s.inputTweakRow}>
-                  <span className={controls.label}>Landmark color</span>
-                  <input
-                    type="color"
-                    value={state.mediapipeOptions.landmarkColor}
-                    onChange={e => actions.setMediapipeOptions({ landmarkColor: e.target.value })}
-                  />
-                </div>
-
-                <div className={s.inputTweakRow}>
-                  <span className={controls.label}>Wire color</span>
-                  <input
-                    type="color"
-                    value={state.mediapipeOptions.wireframeColor}
-                    onChange={e => actions.setMediapipeOptions({ wireframeColor: e.target.value })}
-                  />
-                </div>
+                  <div className={s.inputTweakRow}>
+                    <span className={controls.label}>Wire color</span>
+                    <input
+                      type="color"
+                      value={state.mediapipeOptions.wireframeColor}
+                      onChange={e => actions.setMediapipeOptions({ wireframeColor: e.target.value })}
+                    />
+                  </div>
+                </>)}
               </fieldset>
             </CollapsibleSection>
           )}
