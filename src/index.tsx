@@ -12,6 +12,7 @@ import App from "components/App";
 import { FilterProvider } from "context/FilterContext";
 import { PALETTE } from "constants/optionTypes";
 import { THEMES } from "palettes/user";
+import { initMIDI } from "utils/midi";
 
 // Load localStorage palettes
 Object.values(localStorage).forEach(json => {
@@ -26,6 +27,8 @@ Object.values(localStorage).forEach(json => {
     // ignore
   }
 });
+
+initMIDI();
 
 const root = document.getElementById("root");
 if (root) {

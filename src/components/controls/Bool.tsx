@@ -11,7 +11,7 @@ const Bool = (props: BoolControlProps) => {
       <input
         type="checkbox"
         checked={Boolean(props.value)}
-        onChange={e => props.onSetFilterOption(props.name, e.target.checked)}
+        onInput={e => props.onSetFilterOption(props.name, (e.target as HTMLInputElement).checked)}
       />
       <span
         className={s.label}
