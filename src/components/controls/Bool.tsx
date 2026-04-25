@@ -11,6 +11,7 @@ const Bool = (props: BoolControlProps) => {
       <input
         type="checkbox"
         checked={Boolean(props.value)}
+        data-midi-id={props.idPrefix ? `${props.idPrefix}-bool-${props.name}` : undefined}
         onInput={e => props.onSetFilterOption(props.name, (e.target as HTMLInputElement).checked)}
       />
       <span

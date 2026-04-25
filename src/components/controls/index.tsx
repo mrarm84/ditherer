@@ -43,6 +43,7 @@ const Controls = (props: NestedControlsProps) => {
   const optionTypes: FilterOptionDefinitions = props.optionTypes || filter?.optionTypes || {};
   const options: FilterOptionValues = props.options || filter?.options || {};
   const inputCanvas = props.inputCanvas;
+  const idPrefix = props.idPrefix;
   const onSetFilterOption = props.onSetFilterOption || actions.setFilterOption;
   const onSetPaletteOption = props.onSetPaletteOption || actions.setFilterPaletteOption;
   const onAddPaletteColor: (color: number[]) => void = props.onAddPaletteColor || actions.addPaletteColor;
@@ -80,6 +81,7 @@ const Controls = (props: NestedControlsProps) => {
             return (
               <button
                 key={name}
+                data-midi-id={idPrefix ? `${idPrefix}-action-${name}` : undefined}
                 onClick={() => {
                   actionType.action(actions, inputCanvas ?? null, state.selected?.filter?.func, options);
                 }}
@@ -95,6 +97,7 @@ const Controls = (props: NestedControlsProps) => {
               <Range
                 key={name}
                 name={name}
+                idPrefix={idPrefix}
                 types={{ ...controlMeta(rangeType.label, rangeType.desc), range: rangeType.range }}
                 value={typeof value === "number" ? value : Number(value ?? rangeType.default ?? 0)}
                 {...(rangeType.step !== undefined ? { step: rangeType.step } : {})}
@@ -109,6 +112,7 @@ const Controls = (props: NestedControlsProps) => {
               <Palette
                 key={name}
                 name={name}
+                idPrefix={idPrefix}
                 types={controlMeta(paletteType.label, paletteType.desc)}
                 value={value as PaletteValue}
                 {...(((value as PaletteValue | undefined)?.options) !== undefined
@@ -181,6 +185,7 @@ const Controls = (props: NestedControlsProps) => {
               <Bool
                 key={name}
                 name={name}
+                idPrefix={idPrefix}
                 types={controlMeta(oType.label, oType.desc)}
                 value={Boolean(value)}
                 onSetFilterOption={onSetFilterOption}

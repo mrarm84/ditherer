@@ -21,8 +21,9 @@ const Range = (props: RangeControlProps) => {
           max={props.types.range[1]}
           value={props.value}
           step={props.step || 1}
-          onChange={e =>
-            props.onSetFilterOption(props.name, parseFloat(e.target.value))
+          data-midi-id={props.idPrefix ? `${props.idPrefix}-range-${props.name}` : undefined}
+          onInput={e =>
+            props.onSetFilterOption(props.name, parseFloat((e.target as HTMLInputElement).value))
           }
         />
 

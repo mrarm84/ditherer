@@ -493,6 +493,7 @@ const ChainList = ({
         <div className={s.toolbarGroup}>
           <button
             className={s.addBtn}
+            data-midi-id="chain-browser-open"
             onClick={() => {
               setLibraryInitialTab("filters");
               setLibraryInitialQuery("");
@@ -524,6 +525,7 @@ const ChainList = ({
           </select>
           <button
             className={[s.addBtn, s.randomAction].join(" ")}
+            data-midi-id="chain-random-preset"
             onClick={() => loadRandomPreset()}
             title="Random curated preset"
           >
@@ -531,6 +533,7 @@ const ChainList = ({
           </button>
           <button
             className={[s.addBtn, s.randomAction].join(" ")}
+            data-midi-id="chain-random-filters"
             onClick={() => randomChain()}
             title="Random filter chain"
           >
@@ -538,6 +541,7 @@ const ChainList = ({
           </button>
           <button
             className={[s.addBtn, s.randomAction].join(" ")}
+            data-midi-id="chain-shuffle"
             onClick={() => actions.chainShuffle()}
             title="Randomize filter order"
           >
@@ -645,6 +649,7 @@ const ChainList = ({
                 className={s.entryCheckbox}
                 type="checkbox"
                 checked={entry.enabled}
+                data-midi-id={`chain-enabled-${entry.id}`}
                 onChange={(e) => {
                   e.stopPropagation();
                   actions.chainToggle(entry.id);
@@ -690,6 +695,7 @@ const ChainList = ({
                 {entry.filter?.optionTypes?.animate && (
                   <button
                     className={`${s.removeBtn} ${actions.isAnimating() ? s.animActive : ""}`}
+                    data-midi-id={`chain-animate-${entry.id}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       (entry.filter.optionTypes?.animate as ActionOptionDefinition).action(
@@ -703,6 +709,7 @@ const ChainList = ({
                 )}
                 <button
                   className={s.removeBtn}
+                  data-midi-id={`chain-reset-${entry.id}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     const match = filterList.find((f) => f && f.displayName === entry.displayName);
@@ -714,6 +721,7 @@ const ChainList = ({
                 </button>
                 <button
                   className={[s.removeBtn, entry.audioMod ? s.audioMappedBtn : ""].join(" ")}
+                  data-midi-id={`chain-audio-${entry.id}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     onEditAudioMod?.(entry.id, (e.currentTarget as HTMLElement).getBoundingClientRect());
@@ -724,6 +732,7 @@ const ChainList = ({
                 </button>
                 <button
                   className={s.removeBtn}
+                  data-midi-id={`chain-reroll-${entry.id}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     const base = entry.filter;
@@ -736,6 +745,7 @@ const ChainList = ({
                 </button>
                 <button
                   className={s.removeBtn}
+                  data-midi-id={`chain-presets-${entry.id}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     openPresetBrowserForFilter(entry.displayName);
@@ -746,6 +756,7 @@ const ChainList = ({
                 </button>
                 <button
                   className={s.removeBtn}
+                  data-midi-id={`chain-remove-${entry.id}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (chain.length <= 1) {
@@ -760,6 +771,7 @@ const ChainList = ({
                 </button>
                 <button
                   className={s.removeBtn}
+                  data-midi-id={`chain-duplicate-${entry.id}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     actions.chainDuplicate(entry.id);
@@ -770,6 +782,7 @@ const ChainList = ({
                 </button>
                 <button
                   className={`${s.removeBtn} ${pinnedPreviews.has(entry.id) ? s.animActive : ""}`}
+                  data-midi-id={`chain-pin-${entry.id}`}
                   data-preview-hover-anchor="true"
                   onMouseEnter={(e) => {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -806,6 +819,7 @@ const ChainList = ({
           </div>
           <button
             className={`${s.removeBtn} ${s.addEntryButton}`}
+            data-midi-id="chain-add-random"
             onClick={(e) => {
               e.stopPropagation();
               const { displayName, filter } = getRandomFilter();

@@ -66,3 +66,9 @@ body[style*="cursor: wait"] * {
              env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 }
+
+.midi-active {
+  background-color: #ff0 !important;
+  color: #000 !important;
+  transform: scale(0.95);
+}

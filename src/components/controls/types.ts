@@ -15,6 +15,7 @@ export interface ControlProps<TDefinition = FilterOptionDefinition, TValue = unk
   value: TValue;
   hideLabel?: boolean;
   onSetFilterOption: ControlSetter;
+  idPrefix?: string;
 }
 
 export type BoolControlProps = ControlProps<ControlMeta, boolean>;
@@ -36,6 +37,7 @@ export type ColorControlProps = {
 };
 
 export interface NestedControlsProps {
+  idPrefix?: string;
   optionTypes?: FilterOptionDefinitions;
   options?: FilterOptionValues;
   inputCanvas?: HTMLCanvasElement | null;

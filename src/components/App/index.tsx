@@ -2663,7 +2663,11 @@ const App = () => {
               <span className={controls.name}>
                 {state.chain[state.activeIndex]?.displayName ?? "Options"}
               </span>
-              <Controls inputCanvas={inputCanvasRef.current} />
+              <Controls
+                idPrefix={state.chain[state.activeIndex]?.id}
+                inputCanvas={inputCanvasRef.current}
+              />
+
               {state.selected?.filter?.defaults && (
                 <button
                   onClick={() => {

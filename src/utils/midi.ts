@@ -1,19 +1,32 @@
 /**
  * MIDI Service for "Ditherer"
- * Provides MIDI Learn and control for sliders and checkboxes.
+ * Provides MIDI Learn and control for sliders, checkboxes, and buttons.
  */
 
 interface Binding {
-  element: HTMLInputElement;
+  element: HTMLElement;
+  midiId?: string; // Stable ID to find element if DOM node is replaced
   min: number;
   max: number;
-  type: "range" | "checkbox";
+  type: "range" | "checkbox" | "button";
 }
 
-let learnState: { element: HTMLInputElement; min: number; max: number; type: "range" | "checkbox" } | null = null;
+let learnState: { element: HTMLElement; midiId?: string; min: number; max: number; type: "range" | "checkbox" | "button" } | null = null;
 const ccBindings: Record<number, Binding[]> = {};
-const sliderRanges = new WeakMap<HTMLInputElement, { min: number; max: number }>();
-const inertiaMap = new WeakMap<HTMLInputElement, { interval: number; timeout: number }>();
+const sliderRanges = new WeakMap<HTMLElement, { min: number; max: number }>();
+const inertiaMap = new WeakMap<HTMLElement, { interval: number; timeout: number }>();
+
+function findElement(binding: Binding): HTMLElement | null {
+  if (document.body.contains(binding.element)) return binding.element;
+  if (binding.midiId) {
+    const el = document.querySelector(`[data-midi-id="${binding.midiId}"]`);
+    if (el instanceof HTMLElement) {
+      binding.element = el; // Update reference
+      return el;
+    }
+  }
+  return null;
+}
 
 function startInertia(element: HTMLInputElement, lastValue: number, newValue: number) {
   const direction = Math.sign(newValue - lastValue);
@@ -61,23 +74,44 @@ export function initMIDI() {
 
   // MIDI LEARN ARMING
   document.addEventListener("pointerdown", (e) => {
-    const el = e.target as HTMLInputElement;
-    if (el.tagName === "INPUT" && (el.type === "range" || el.type === "checkbox")) {
-      const isRange = el.type === "range";
-      const min = isRange ? Number(el.min || 0) : 0;
-      const max = isRange ? Number(el.max || 100) : 1;
+    let el = e.target as HTMLElement;
+    
+    // Support clicking on icons inside buttons
+    if (el.tagName !== "INPUT" && el.tagName !== "BUTTON") {
+      const parentButton = el.closest("button");
+      if (parentButton) el = parentButton;
+    }
+
+    const isInput = el.tagName === "INPUT";
+    const isButton = el.tagName === "BUTTON";
+
+    if (isInput || isButton) {
+      const input = el as HTMLInputElement;
+      const type = isButton ? "button" : (input.type as "range" | "checkbox");
+      
+      if (type !== "range" && type !== "checkbox" && type !== "button") return;
+
+      const isRange = type === "range";
+      const min = isRange ? Number(input.min || 0) : 0;
+      const max = isRange ? Number(input.max || 100) : 1;
 
       if (isRange) {
         sliderRanges.set(el, { min, max });
       }
 
-      learnState = { element: el, min, max, type: el.type as "range" | "checkbox" };
+      learnState = { 
+        element: el, 
+        midiId: el.dataset.midiId,
+        min, 
+        max, 
+        type 
+      };
 
-      console.log(`🎛️ MIDI Learn armed for ${el.type}:`, el);
+      console.log(`🎛️ MIDI Learn armed for ${type}:`, el);
       if (isRange) {
         console.log("➡️ Move slider to detect range, then turn a MIDI knob");
       } else {
-        console.log("➡️ Toggle checkbox, then press a MIDI button");
+        console.log(`➡️ Use ${type}, then press a MIDI button/knob`);
       }
     }
   });
@@ -112,12 +146,15 @@ export function initMIDI() {
         if (learnState) {
           if (!ccBindings[controlNumber]) ccBindings[controlNumber] = [];
 
-          // Prevent duplicates for same element on same CC
-          const alreadyBound = ccBindings[controlNumber].some(b => b.element === learnState!.element);
+          // Prevent duplicates for same logic element (using midiId if available)
+          const alreadyBound = ccBindings[controlNumber].some(b => 
+            (learnState!.midiId && b.midiId === learnState!.midiId) || b.element === learnState!.element
+          );
 
           if (!alreadyBound) {
             ccBindings[controlNumber].push({
               element: learnState.element,
+              midiId: learnState.midiId,
               min: learnState.min,
               max: learnState.max,
               type: learnState.type
@@ -126,7 +163,7 @@ export function initMIDI() {
             console.log(
               `🔗 Bound ${isCC ? 'CC' : 'Note'} ${controlNumber} →`,
               learnState.element,
-              learnState.type === "range" ? `range ${learnState.min}–${learnState.max}` : "(toggle)"
+              learnState.type === "range" ? `range ${learnState.min}–${learnState.max}` : `(${learnState.type})`
             );
           }
 
@@ -136,13 +173,12 @@ export function initMIDI() {
         // CONTROL MODE
         if (ccBindings[controlNumber]) {
           for (const binding of ccBindings[controlNumber]) {
-            const { element, type } = binding;
+            const element = findElement(binding);
+            if (!element) continue;
 
-            if (!document.body.contains(element)) {
-              continue;
-            }
+            const { type } = binding;
 
-            if (type === "range") {
+            if (type === "range" && element instanceof HTMLInputElement) {
               const range = sliderRanges.get(element) || binding;
               const scaled = range.min + (value / 127) * (range.max - range.min);
               const oldValue = Number(element.value);
@@ -151,7 +187,7 @@ export function initMIDI() {
               element.dispatchEvent(new Event("input", { bubbles: true }));
 
               startInertia(element, oldValue, scaled);
-            } else if (type === "checkbox") {
+            } else if (type === "checkbox" && element instanceof HTMLInputElement) {
               if (isCC) {
                 const newState = value >= 64;
                 if (element.checked !== newState) {
@@ -164,12 +200,20 @@ export function initMIDI() {
                 element.dispatchEvent(new Event("input", { bubbles: true }));
                 element.dispatchEvent(new Event("change", { bubbles: true }));
               }
+            } else if (type === "button") {
+              // Trigger click on Note On or CC transition to high
+              if (isNoteOn || (isCC && value >= 64)) {
+                element.click();
+                // Visual feedback
+                element.classList.add('midi-active');
+                setTimeout(() => element.classList.remove('midi-active'), 100);
+              }
             }
           }
         }
       };
     }
-    console.log("🎹 MIDI ready. Click a slider or checkbox to start learning.");
+    console.log("🎹 MIDI ready. Click a slider, checkbox or button to start learning.");
   }).catch(err => {
     console.error("MIDI Access failed:", err);
   });
@@ -183,6 +227,7 @@ export function bindXY(xElement: HTMLInputElement, yElement: HTMLInputElement, c
     if (!ccBindings[cc]) ccBindings[cc] = [];
     ccBindings[cc].push({
       element: el,
+      midiId: el.dataset.midiId,
       min: Number(el.min || 0),
       max: Number(el.max || 100),
       type: "range"
